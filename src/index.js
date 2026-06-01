@@ -1,10 +1,9 @@
 const MAX_BODY_BYTES = 20_000;
-
-const ROUTES = {
-  "/v1/generate/clean": "clean",
-  "/v1/generate/spicy": "spicy",
-  "/clean": "clean",
-  "/spicy": "spicy",
+const BUILD_PATH = "/build";
+const LANE_HEADER = "x-gagged-lane";
+const LANES = {
+  standard: "standard",
+  edge: "edge",
 };
 
 export default {
@@ -26,7 +25,7 @@ async function handleRequest(request, env) {
       purpose: "AI provider key custody and request forwarding",
       privacy: "No prompt, response, or deck storage by this Worker.",
       source: "https://github.com/idontlikecodemuch/gagged-notepasser",
-      routes: ["/v1/generate/clean", "/v1/generate/spicy"],
+      routes: ["/build", "/health"],
     });
   }
 
@@ -50,9 +49,13 @@ async function handleRequest(request, env) {
     });
   }
 
-  const route = ROUTES[url.pathname];
-  if (!route) {
+  if (url.pathname !== BUILD_PATH) {
     return json({ error: "not_found" }, 404);
+  }
+
+  const lane = laneForRequest(request);
+  if (!lane) {
+    return json({ error: "invalid_lane" }, 400);
   }
 
   const contentType = request.headers.get("content-type") || "";
@@ -70,7 +73,7 @@ async function handleRequest(request, env) {
     return json({ error: "request_too_large" }, 413);
   }
 
-  const upstream = upstreamForRoute(route, env);
+  const upstream = upstreamForLane(lane, env);
   if (!upstream.ok) {
     return json({ error: "proxy_not_configured", missing: upstream.missing }, 500);
   }
@@ -100,8 +103,13 @@ async function handleRequest(request, env) {
   });
 }
 
-function upstreamForRoute(route, env) {
-  if (route === "clean") {
+function laneForRequest(request) {
+  const value = (request.headers.get(LANE_HEADER) || "").trim().toLowerCase();
+  return LANES[value] || null;
+}
+
+function upstreamForLane(lane, env) {
+  if (lane === "standard") {
     return buildUpstream({
       url: env.GEMINI_URL,
       key: env.GEMINI_API_KEY,
@@ -114,7 +122,7 @@ function upstreamForRoute(route, env) {
     });
   }
 
-  if (route === "spicy") {
+  if (lane === "edge") {
     return buildUpstream({
       url: env.XAI_URL,
       key: env.XAI_API_KEY,
@@ -127,7 +135,7 @@ function upstreamForRoute(route, env) {
     });
   }
 
-  return { ok: false, missing: ["route"] };
+  return { ok: false, missing: ["lane"] };
 }
 
 function buildUpstream({ url, key, keyName, urlName, headers }) {
@@ -150,4 +158,3 @@ function json(payload, status = 200, headers = {}) {
     },
   });
 }
-

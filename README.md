@@ -30,13 +30,17 @@ Cloudflare and the upstream AI provider still process requests in transit. Cloud
 ```text
 GET  /health
 GET  /
-POST /v1/generate/clean
-POST /v1/generate/spicy
-POST /clean
-POST /spicy
+POST /build
 ```
 
-The `/clean` and `/spicy` routes are aliases for easier early app testing. Prefer `/v1/generate/clean` and `/v1/generate/spicy` in the app.
+Provider selection is intentionally not in the URL. The app chooses the lane with the `x-gagged-lane` header:
+
+```text
+x-gagged-lane: standard
+x-gagged-lane: edge
+```
+
+`standard` routes to Gemini. `edge` routes to xAI.
 
 ## Cloudflare Secrets / Variables
 
@@ -103,12 +107,13 @@ npx wrangler deploy
 
 ## App Contract
 
-The iPhone app sends a provider-compatible JSON body to the chosen route. The Worker forwards that body unchanged and injects the correct provider auth header.
+The iPhone app sends a provider-compatible JSON body to `/build`. The Worker forwards that body unchanged and injects the correct provider auth header.
 
-Clean route:
+Standard lane:
 
 ```text
-POST /v1/generate/clean
+POST /build
+x-gagged-lane: standard
 ```
 
 Adds:
@@ -117,10 +122,11 @@ Adds:
 x-goog-api-key: GEMINI_API_KEY
 ```
 
-Spicy route:
+Edge lane:
 
 ```text
-POST /v1/generate/spicy
+POST /build
+x-gagged-lane: edge
 ```
 
 Adds:
