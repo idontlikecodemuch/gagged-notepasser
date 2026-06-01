@@ -1,6 +1,8 @@
 const MAX_BODY_BYTES = 20_000;
 const BUILD_PATH = "/build";
 const LANE_HEADER = "x-gagged-lane";
+const BETA_CODE_HEADER = "x-gagged-ticket";
+const BETA_CODE_BINDING = "GAGGED_BETA_CODE";
 const DEFAULT_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
 const DEFAULT_XAI_URL = "https://api.x.ai/v1/chat/completions";
 const GEMINI_KEY_BINDINGS = [
@@ -65,6 +67,14 @@ async function handleRequest(request, env) {
     return json({ error: "invalid_lane" }, 400);
   }
 
+  const betaGate = validateBetaGate(request, env);
+  if (!betaGate.configured) {
+    return json({ error: "proxy_not_configured", missing: [BETA_CODE_BINDING] }, 500);
+  }
+  if (!betaGate.authorized) {
+    return json({ error: "forbidden" }, 403);
+  }
+
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.toLowerCase().includes("application/json")) {
     return json({ error: "json_required" }, 415);
@@ -108,6 +118,32 @@ async function handleRequest(request, env) {
 function laneForRequest(request) {
   const value = (request.headers.get(LANE_HEADER) || "").trim().toLowerCase();
   return LANES[value] || null;
+}
+
+function validateBetaGate(request, env) {
+  const expected = env[BETA_CODE_BINDING];
+  if (!expected) {
+    return { configured: false, authorized: false };
+  }
+
+  const provided = request.headers.get(BETA_CODE_HEADER) || "";
+  return {
+    configured: true,
+    authorized: constantTimeEqual(provided, expected),
+  };
+}
+
+function constantTimeEqual(left, right) {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  const length = Math.max(leftBytes.length, rightBytes.length);
+  let diff = leftBytes.length ^ rightBytes.length;
+
+  for (let index = 0; index < length; index += 1) {
+    diff |= (leftBytes[index] || 0) ^ (rightBytes[index] || 0);
+  }
+
+  return diff === 0;
 }
 
 async function fetchWithFallback(upstreams, body) {

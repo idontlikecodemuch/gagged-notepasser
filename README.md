@@ -47,6 +47,7 @@ x-gagged-lane: edge
 Required:
 
 ```text
+GAGGED_BETA_CODE
 gagged-prod-gemini-API1
 gagged-prod-gemini-API2
 gagged-xai-key
@@ -73,6 +74,7 @@ Or with Wrangler:
 npx wrangler secret put gagged-prod-gemini-API1
 npx wrangler secret put gagged-prod-gemini-API2
 npx wrangler secret put gagged-xai-key
+npx wrangler secret put GAGGED_BETA_CODE
 ```
 
 Gemini fallback behavior:
@@ -90,6 +92,7 @@ Create a local `.dev.vars` file only on your machine:
 gagged-prod-gemini-API1=...
 gagged-prod-gemini-API2=...
 gagged-xai-key=...
+GAGGED_BETA_CODE=...
 ```
 
 Then run:
@@ -120,6 +123,7 @@ Standard lane:
 ```text
 POST /build
 x-gagged-lane: standard
+x-gagged-ticket: <beta code>
 ```
 
 Adds:
@@ -133,6 +137,7 @@ Edge lane:
 ```text
 POST /build
 x-gagged-lane: edge
+x-gagged-ticket: <beta code>
 ```
 
 Adds:
@@ -142,6 +147,8 @@ authorization: Bearer XAI_API_KEY
 ```
 
 The Worker rejects non-JSON requests and bodies larger than 20 KB.
+
+The `x-gagged-ticket` beta gate is only an interim access control. It prevents accidental/public use of the endpoint during beta, but it is not a replacement for App Attest because a shipped app secret can be extracted. Move to App Attest before broad public launch.
 
 ## Future Hardening
 
