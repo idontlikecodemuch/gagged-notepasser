@@ -47,32 +47,39 @@ x-gagged-lane: edge
 Required:
 
 ```text
-GEMINI_API_KEY
-XAI_API_KEY
-GEMINI_URL
-XAI_URL
+gagged-prod-gemini-API1
+gagged-prod-gemini-API2
+gagged-xai-key
 ```
 
-Suggested values:
+Optional URL overrides:
 
 ```text
-GEMINI_URL=https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent
-XAI_URL=https://api.x.ai/v1/chat/completions
+GAGGED_GEMINI_URL=https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent
+GAGGED_XAI_URL=https://api.x.ai/v1/chat/completions
 ```
 
-Set them with Wrangler:
+Default provider URLs are already built into the Worker. Set the overrides only if the provider endpoint/model changes.
 
-```bash
-npx wrangler secret put GEMINI_API_KEY
-npx wrangler secret put XAI_API_KEY
-npx wrangler secret put GEMINI_URL
-npx wrangler secret put XAI_URL
-```
-
-Or add them in the Cloudflare dashboard:
+Set keys in the Cloudflare dashboard:
 
 ```text
 Workers & Pages -> gagged-notepasser -> Settings -> Variables and Secrets
+```
+
+Or with Wrangler:
+
+```bash
+npx wrangler secret put gagged-prod-gemini-API1
+npx wrangler secret put gagged-prod-gemini-API2
+npx wrangler secret put gagged-xai-key
+```
+
+Gemini fallback behavior:
+
+```text
+standard lane -> try gagged-prod-gemini-API1
+429 quota response -> retry once with gagged-prod-gemini-API2
 ```
 
 ## Local Development
@@ -80,10 +87,9 @@ Workers & Pages -> gagged-notepasser -> Settings -> Variables and Secrets
 Create a local `.dev.vars` file only on your machine:
 
 ```text
-GEMINI_API_KEY=...
-XAI_API_KEY=...
-GEMINI_URL=...
-XAI_URL=...
+gagged-prod-gemini-API1=...
+gagged-prod-gemini-API2=...
+gagged-xai-key=...
 ```
 
 Then run:

@@ -1,6 +1,13 @@
 const MAX_BODY_BYTES = 20_000;
 const BUILD_PATH = "/build";
 const LANE_HEADER = "x-gagged-lane";
+const DEFAULT_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
+const DEFAULT_XAI_URL = "https://api.x.ai/v1/chat/completions";
+const GEMINI_KEY_BINDINGS = [
+  "gagged-prod-gemini-API1",
+  "gagged-prod-gemini-API2",
+];
+const XAI_KEY_BINDING = "gagged-xai-key";
 const LANES = {
   standard: "standard",
   edge: "edge",
@@ -73,21 +80,16 @@ async function handleRequest(request, env) {
     return json({ error: "request_too_large" }, 413);
   }
 
-  const upstream = upstreamForLane(lane, env);
-  if (!upstream.ok) {
-    return json({ error: "proxy_not_configured", missing: upstream.missing }, 500);
+  const upstreams = upstreamsForLane(lane, env);
+  if (!upstreams.ok) {
+    return json({ error: "proxy_not_configured", missing: upstreams.missing }, 500);
   }
 
-  let upstreamResponse;
-  try {
-    upstreamResponse = await fetch(upstream.url, {
-      method: "POST",
-      headers: upstream.headers,
-      body,
-    });
-  } catch {
+  const upstreamResult = await fetchWithFallback(upstreams.items, body);
+  if (!upstreamResult.ok) {
     return json({ error: "upstream_unavailable" }, 502);
   }
+  const upstreamResponse = upstreamResult.response;
 
   const responseHeaders = new Headers({
     "cache-control": "no-store",
@@ -108,44 +110,74 @@ function laneForRequest(request) {
   return LANES[value] || null;
 }
 
-function upstreamForLane(lane, env) {
+async function fetchWithFallback(upstreams, body) {
+  for (let index = 0; index < upstreams.length; index += 1) {
+    const upstream = upstreams[index];
+    let response;
+    try {
+      response = await fetch(upstream.url, {
+        method: "POST",
+        headers: upstream.headers,
+        body,
+      });
+    } catch {
+      if (index === upstreams.length - 1) {
+        return { ok: false };
+      }
+      continue;
+    }
+
+    const shouldFallback = response.status === 429 && index < upstreams.length - 1;
+    if (!shouldFallback) {
+      return { ok: true, response };
+    }
+  }
+
+  return { ok: false };
+}
+
+function upstreamsForLane(lane, env) {
   if (lane === "standard") {
-    return buildUpstream({
-      url: env.GEMINI_URL,
-      key: env.GEMINI_API_KEY,
-      keyName: "GEMINI_API_KEY",
-      urlName: "GEMINI_URL",
-      headers: (key) => ({
-        "content-type": "application/json",
-        "x-goog-api-key": key,
-      }),
-    });
+    const keys = GEMINI_KEY_BINDINGS
+      .map((name) => ({ name, value: env[name] }))
+      .filter((item) => Boolean(item.value));
+
+    if (keys.length === 0) {
+      return { ok: false, missing: GEMINI_KEY_BINDINGS };
+    }
+
+    const url = env.GAGGED_GEMINI_URL || DEFAULT_GEMINI_URL;
+    return {
+      ok: true,
+      items: keys.map((key) => ({
+        url,
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": key.value,
+        },
+      })),
+    };
   }
 
   if (lane === "edge") {
-    return buildUpstream({
-      url: env.XAI_URL,
-      key: env.XAI_API_KEY,
-      keyName: "XAI_API_KEY",
-      urlName: "XAI_URL",
-      headers: (key) => ({
-        "content-type": "application/json",
-        "authorization": `Bearer ${key}`,
-      }),
-    });
+    const key = env[XAI_KEY_BINDING];
+    if (!key) {
+      return { ok: false, missing: [XAI_KEY_BINDING] };
+    }
+
+    return {
+      ok: true,
+      items: [{
+        url: env.GAGGED_XAI_URL || DEFAULT_XAI_URL,
+        headers: {
+          "content-type": "application/json",
+          "authorization": `Bearer ${key}`,
+        },
+      }],
+    };
   }
 
   return { ok: false, missing: ["lane"] };
-}
-
-function buildUpstream({ url, key, keyName, urlName, headers }) {
-  const missing = [];
-  if (!url) missing.push(urlName);
-  if (!key) missing.push(keyName);
-  if (missing.length > 0) {
-    return { ok: false, missing };
-  }
-  return { ok: true, url, headers: headers(key) };
 }
 
 function json(payload, status = 200, headers = {}) {
